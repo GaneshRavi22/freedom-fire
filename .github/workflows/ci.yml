@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Type-check, Test & Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+
+      - name: Run unit tests with coverage (threshold ≥90% enforced via jest.config.js)
+        run: npm test -- --coverage --ci --forceExit
+        env:
+          # Prevent Supabase client from erroring on missing env vars during tests
+          EXPO_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+
+      - name: Expo Doctor
+        run: npx expo-doctor
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+
+      - name: Validate Grafana dashboard
+        run: node scripts/validate-grafana-dashboard.js
+
+  security:
+    name: Secret & Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.27.2
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo install -m 755 gitleaks /usr/local/bin/gitleaks
+
+      - name: Scan working tree for hard-coded secrets
+        run: gitleaks detect --source . --verbose --redact --exit-code 1
+
+      - name: Scan git history for secrets in committed diffs
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gitleaks git \
+              --log-opts="${{ github.event.pull_request.base.sha }}..${{ github.sha }}" \
+              --verbose --redact --exit-code 1
+          else
+            gitleaks git --verbose --redact --exit-code 1
+          fi
+
+      - name: Check for accidentally committed .env files
+        run: |
+          TRACKED=$(git ls-files | grep -E '^\.env$|^\.env\.[^e]|^\.env\.local$' || true)
+          if [ -n "$TRACKED" ]; then
+            echo "ERROR: The following .env file(s) are tracked by git:"
+            echo "$TRACKED"
+            echo "Remove them with: git rm --cached <file>"
+            exit 1
+          fi
+          echo "No .env files tracked by git."

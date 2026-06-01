@@ -1,0 +1,102 @@
+name: Deploy
+
+# Triggers on version tags:
+#   v1.2.3            → production
+#   v1.2.3-rc.1       → preview (staging)
+#   v1.2.3-preview.1  → preview (staging)
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  resolve-env:
+    name: Resolve environment from tag
+    runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.detect.outputs.env }}
+    steps:
+      - id: detect
+        name: Detect target environment
+        run: |
+          tag="${{ github.ref_name }}"
+          if [[ "$tag" == *"-preview"* || "$tag" == *"-rc"* ]]; then
+            echo "env=preview" >> $GITHUB_OUTPUT
+          else
+            echo "env=production" >> $GITHUB_OUTPUT
+          fi
+
+  deploy-web:
+    name: Deploy Web (${{ needs.resolve-env.outputs.env }})
+    needs: resolve-env
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
+      # ── Preview / Staging ─────────────────────────────────────────────────────
+      - name: Export web bundle (preview)
+        if: needs.resolve-env.outputs.env == 'preview'
+        run: APP_ENV=preview npx expo export --platform web
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.STAGING_SENTRY_DSN }}
+
+      # ── Production ────────────────────────────────────────────────────────────
+      - name: Export web bundle (production)
+        if: needs.resolve-env.outputs.env == 'production'
+        run: APP_ENV=production npx expo export --platform web
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PRODUCTION_SUPABASE_ANON_KEY }}
+          EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.PRODUCTION_SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      # ── E2E sanity tests (runs after export, gates deployment) ────────────────
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests against web export
+        run: npx playwright test
+        env:
+          CI: true
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      # ── Deploy (only reached if E2E tests pass) ───────────────────────────────
+      - name: Deploy to EAS Hosting (preview)
+        if: needs.resolve-env.outputs.env == 'preview'
+        run: eas deploy --channel preview --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Deploy to EAS Hosting (production)
+        if: needs.resolve-env.outputs.env == 'production'
+        run: eas deploy --channel production --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

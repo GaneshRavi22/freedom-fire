@@ -1,0 +1,368 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_POSTGRESQL",
+      "label": "PostgreSQL (Supabase)",
+      "description": "Connect to your Supabase PostgreSQL database",
+      "type": "datasource",
+      "pluginId": "postgres",
+      "pluginName": "PostgreSQL"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana",    "id": "grafana",    "name": "Grafana",    "version": "9.0.0" },
+    { "type": "datasource", "id": "postgres",   "name": "PostgreSQL", "version": "1.0.0" },
+    { "type": "panel",      "id": "stat",       "name": "Stat",       "version": "" },
+    { "type": "panel",      "id": "timeseries", "name": "Time series","version": "" },
+    { "type": "panel",      "id": "barchart",   "name": "Bar chart",  "version": "" },
+    { "type": "panel",      "id": "piechart",   "name": "Pie chart",  "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "refresh": "5m",
+  "schemaVersion": 37,
+  "style": "dark",
+  "tags": ["freedomfire", "analytics"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "Asia/Kolkata",
+  "title": "FreedomFire Analytics",
+  "uid": "funance-analytics",
+  "version": 1,
+  "weekStart": "",
+  "panels": [
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "id": 1, "title": "Key Metrics", "type": "row" },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#5794F2" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#5794F2", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT COUNT(*) AS \"Total Users\" FROM profiles", "refId": "A" }],
+      "title": "Total Users",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#73BF69" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#73BF69", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT COUNT(*) AS \"Active (7d)\"\nFROM user_gamification\nWHERE last_login_date >= CURRENT_DATE - INTERVAL '7 days'", "refId": "A" }],
+      "title": "Active Users (Last 7 Days)",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#B877D9" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#B877D9", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 4,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT COUNT(*) AS \"FIRE Plans\" FROM fire_calculations", "refId": "A" }],
+      "title": "FIRE Plans Created",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "orange", "value": 30 },
+              { "color": "green",  "value": 60 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 5,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT ROUND(100.0 * COUNT(fc.user_id) / NULLIF(COUNT(p.id), 0), 1) AS \"Activation Rate\"\nFROM profiles p\nLEFT JOIN fire_calculations fc ON fc.user_id = p.id", "refId": "A" }],
+      "title": "Activation Rate (Signup → FIRE Plan)",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#37872D" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#37872D", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 6,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT COUNT(DISTINCT user_id) AS \"With Spend Analysis\" FROM spend_analyses", "refId": "A" }],
+      "title": "Users with Spend Analysis",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#FF9830" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#FF9830", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 7,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT COUNT(*) AS \"Tasks Completed\" FROM user_tasks WHERE status = 'done'", "refId": "A" }],
+      "title": "Tasks Completed",
+      "type": "stat"
+    },
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }, "id": 8, "title": "Growth & Retention", "type": "row" },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "stacking": { "mode": "none", "group": "A" }, "showPoints": "auto", "spanNulls": false }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 9,
+      "options": { "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "time_series", "rawQuery": true, "rawSql": "SELECT\n  $__timeGroupAlias(created_at, $__interval, 0),\n  COUNT(*) AS \"New Users\"\nFROM profiles\nWHERE $__timeFilter(created_at)\nGROUP BY 1\nORDER BY 1", "refId": "A" }],
+      "title": "New Signups Over Time",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "lineInterpolation": "smooth", "showPoints": "auto", "spanNulls": false }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 10,
+      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "time_series", "rawQuery": true, "rawSql": "SELECT\n  $__timeGroupAlias(created_at, $__interval, 0),\n  COUNT(DISTINCT user_id) AS \"Active Users\"\nFROM analytics_events\nWHERE event = 'screen_viewed'\n  AND $__timeFilter(created_at)\nGROUP BY 1\nORDER BY 1", "refId": "A" }],
+      "title": "Daily Active Users",
+      "type": "timeseries"
+    },
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }, "id": 11, "title": "Acquisition Funnel", "type": "row" },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 80, "lineWidth": 1 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 15 },
+      "id": 12,
+      "options": { "barRadius": 0.05, "barWidth": 0.7, "groupWidth": 0.7, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false }, "orientation": "horizontal", "showValue": "always", "stacking": "none", "tooltip": { "mode": "single", "sort": "none" }, "xTickLabelSpacing": 200 },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT stage, users::bigint\nFROM (\n  VALUES\n    ('1. Signed Up',         (SELECT COUNT(*)               FROM profiles)),\n    ('2. FIRE Plan Created', (SELECT COUNT(DISTINCT user_id) FROM fire_calculations)),\n    ('3. Spend Analysis',    (SELECT COUNT(DISTINCT user_id) FROM spend_analyses)),\n    ('4. Task Accepted',     (SELECT COUNT(DISTINCT user_id) FROM user_tasks WHERE status IN ('accepted','done','canceled'))),\n    ('5. Task Completed',    (SELECT COUNT(DISTINCT user_id) FROM user_tasks WHERE status = 'done'))\n) AS t(stage, users)\nORDER BY stage", "refId": "A" }],
+      "title": "User Funnel",
+      "type": "barchart"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 80, "lineWidth": 1 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 15 },
+      "id": 13,
+      "options": { "barRadius": 0.05, "barWidth": 0.7, "groupWidth": 0.7, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false }, "orientation": "horizontal", "showValue": "always", "stacking": "none", "tooltip": { "mode": "single", "sort": "none" }, "xTickLabelSpacing": 200 },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT\n  properties->>'screen' AS \"Screen\",\n  COUNT(*) AS \"Views\"\nFROM analytics_events\nWHERE event = 'screen_viewed'\n  AND $__timeFilter(created_at)\nGROUP BY 1\nORDER BY 2 DESC", "refId": "A" }],
+      "title": "Screen Views by Screen",
+      "type": "barchart"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 15 },
+      "id": 14,
+      "options": { "displayLabels": ["percent", "name"], "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "pieType": "donut", "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT\n  CASE WHEN (properties->>'is_first')::boolean\n    THEN 'First Calculation'\n    ELSE 'Recalculation'\n  END AS \"Type\",\n  COUNT(*) AS \"Count\"\nFROM analytics_events\nWHERE event = 'fire_calculated'\n  AND $__timeFilter(created_at)\nGROUP BY 1", "refId": "A" }],
+      "title": "First vs Repeat FIRE Calculations",
+      "type": "piechart"
+    },
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 }, "id": 15, "title": "FIRE Profiles", "type": "row" },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 24 },
+      "id": 16,
+      "options": { "displayLabels": ["percent", "name"], "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "pieType": "pie", "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT\n  INITCAP(lifestyle) AS \"Lifestyle\",\n  COUNT(*) AS \"Users\"\nFROM fire_calculations\nWHERE lifestyle IS NOT NULL\nGROUP BY 1\nORDER BY 2 DESC", "refId": "A" }],
+      "title": "Lifestyle Distribution",
+      "type": "piechart"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 80, "lineWidth": 1 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 24 },
+      "id": 17,
+      "options": { "barRadius": 0.05, "barWidth": 0.7, "groupWidth": 0.7, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false }, "orientation": "vertical", "showValue": "always", "stacking": "none", "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT\n  INITCAP(lifestyle) AS \"Lifestyle\",\n  ROUND(AVG(years_to_fire)::numeric, 1) AS \"Avg Years to FIRE\"\nFROM fire_calculations\nWHERE lifestyle IS NOT NULL\n  AND years_to_fire IS NOT NULL\n  AND years_to_fire < 999\nGROUP BY 1\nORDER BY 2", "refId": "A" }],
+      "title": "Avg Years to FIRE by Lifestyle",
+      "type": "barchart"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 80, "lineWidth": 1 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "id": 18,
+      "options": { "barRadius": 0.05, "barWidth": 0.7, "groupWidth": 0.7, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false }, "orientation": "vertical", "showValue": "always", "stacking": "none", "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT\n  CASE\n    WHEN savings_rate < 10 THEN '0-10%'\n    WHEN savings_rate < 20 THEN '10-20%'\n    WHEN savings_rate < 30 THEN '20-30%'\n    WHEN savings_rate < 40 THEN '30-40%'\n    WHEN savings_rate < 50 THEN '40-50%'\n    ELSE '50%+'\n  END AS \"Savings Rate\",\n  COUNT(*) AS \"Users\"\nFROM fire_calculations\nWHERE savings_rate IS NOT NULL\nGROUP BY 1\nORDER BY MIN(savings_rate)", "refId": "A" }],
+      "title": "Savings Rate Distribution",
+      "type": "barchart"
+    },
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 }, "id": 19, "title": "Feature Adoption", "type": "row" },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "stacking": { "mode": "normal", "group": "A" }, "showPoints": "auto", "spanNulls": false }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 33 },
+      "id": 20,
+      "options": { "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "time_series", "rawQuery": true, "rawSql": "SELECT\n  $__timeGroupAlias(created_at, $__interval, 0),\n  COUNT(*) FILTER (WHERE (properties->>'is_first')::boolean)      AS \"First Upload\",\n  COUNT(*) FILTER (WHERE NOT (properties->>'is_first')::boolean)  AS \"Re-upload\"\nFROM analytics_events\nWHERE event = 'statement_uploaded'\n  AND $__timeFilter(created_at)\nGROUP BY 1\nORDER BY 1", "refId": "A" }],
+      "title": "Statement Uploads Over Time",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 80, "lineWidth": 1 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 },
+      "id": 21,
+      "options": { "barRadius": 0.05, "barWidth": 0.7, "groupWidth": 0.7, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false }, "orientation": "vertical", "showValue": "always", "stacking": "none", "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT\n  INITCAP(status) AS \"Status\",\n  COUNT(*) AS \"Tasks\"\nFROM user_tasks\nGROUP BY 1\nORDER BY\n  CASE status\n    WHEN 'recommended' THEN 1\n    WHEN 'accepted'    THEN 2\n    WHEN 'done'        THEN 3\n    WHEN 'canceled'    THEN 4\n  END", "refId": "A" }],
+      "title": "Task Status Funnel",
+      "type": "barchart"
+    },
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 }, "id": 22, "title": "Tasks & Actions", "type": "row" },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 80, "lineWidth": 1 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 42 },
+      "id": 23,
+      "options": { "barRadius": 0.05, "barWidth": 0.7, "groupWidth": 0.7, "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "orientation": "horizontal", "showValue": "auto", "stacking": "none", "tooltip": { "mode": "multi", "sort": "none" }, "xTickLabelSpacing": 200 },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT\n  task_type AS \"Task Type\",\n  COUNT(*) FILTER (WHERE status = 'done')     AS \"Completed\",\n  COUNT(*) FILTER (WHERE status = 'accepted') AS \"In Progress\",\n  COUNT(*) FILTER (WHERE status = 'canceled') AS \"Canceled\"\nFROM user_tasks\nGROUP BY 1\nORDER BY 2 DESC\nLIMIT 10", "refId": "A" }],
+      "title": "Task Outcomes by Type",
+      "type": "barchart"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "lineInterpolation": "smooth", "showPoints": "auto", "spanNulls": false }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
+      "id": 24,
+      "options": { "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "time_series", "rawQuery": true, "rawSql": "SELECT\n  $__timeGroupAlias(created_at, $__interval, 0),\n  COUNT(*) FILTER (WHERE (properties->>'is_first')::boolean)      AS \"First Calculations\",\n  COUNT(*) FILTER (WHERE NOT (properties->>'is_first')::boolean)  AS \"Recalculations\"\nFROM analytics_events\nWHERE event = 'fire_calculated'\n  AND $__timeFilter(created_at)\nGROUP BY 1\nORDER BY 1", "refId": "A" }],
+      "title": "FIRE Calculations Over Time",
+      "type": "timeseries"
+    },
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 }, "id": 25, "title": "Gamification", "type": "row" },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 80, "lineWidth": 1 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
+      "id": 26,
+      "options": { "barRadius": 0.05, "barWidth": 0.7, "groupWidth": 0.7, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false }, "orientation": "vertical", "showValue": "always", "stacking": "none", "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT\n  'Level ' || level AS \"Level\",\n  COUNT(*) AS \"Users\"\nFROM user_gamification\nGROUP BY level\nORDER BY level", "refId": "A" }],
+      "title": "User Level Distribution",
+      "type": "barchart"
+    },
+
+    {
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 80, "lineWidth": 1 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 51 },
+      "id": 27,
+      "options": { "barRadius": 0.05, "barWidth": 0.7, "groupWidth": 0.7, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false }, "orientation": "horizontal", "showValue": "always", "stacking": "none", "tooltip": { "mode": "single", "sort": "none" }, "xTickLabelSpacing": 200 },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" }, "format": "table", "rawQuery": true, "rawSql": "SELECT\n  badge_id AS \"Badge\",\n  COUNT(*) AS \"Times Unlocked\"\nFROM user_badges\nGROUP BY 1\nORDER BY 2 DESC\nLIMIT 10", "refId": "A" }],
+      "title": "Top Badges Unlocked",
+      "type": "barchart"
+    }
+
+  ]
+}
