@@ -553,7 +553,7 @@ describe('accumulateMonthlyAmounts — bug fix (removed incorrect conditional)',
 describe('Claude result fallback — category breakdown and insights selection', () => {
   it('uses Claude categories when result is available', () => {
     const claudeResult = {
-      categories: { 'HDFC EMI': 'emi_loans' as Category, 'SIP': 'investments' as Category },
+      categories: { 'HDFC EMI': 'emi_loans' as Category, 'SIP': 'investments' as Category } as Record<string, Category>,
       insights: ['Insight A', 'Insight B'],
     };
     const debits: Transaction[] = [
@@ -573,7 +573,7 @@ describe('Claude result fallback — category breakdown and insights selection',
 
   it('falls back to keyword categorize() for descriptions not in Claude map', () => {
     const claudeResult = {
-      categories: { 'SIP': 'investments' as Category },
+      categories: { 'SIP': 'investments' as Category } as Record<string, Category>,
       insights: [],
     };
     const debits: Transaction[] = [
@@ -592,12 +592,11 @@ describe('Claude result fallback — category breakdown and insights selection',
   });
 
   it('uses keyword generateInsights when claudeResult is null', () => {
-    const claudeResult = null;
     const keywordBreakdown = { food: 15000 };
     const avgMonthlySpend = 50000;
     const bank = 'hdfc';
 
-    const insights = claudeResult?.insights ?? generateInsights(keywordBreakdown, avgMonthlySpend, bank);
+    const insights = generateInsights(keywordBreakdown, avgMonthlySpend, bank);
     expect(insights.some((i: string) => i.includes('food'))).toBe(true);
   });
 
