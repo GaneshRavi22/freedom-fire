@@ -277,6 +277,22 @@ No public access — service role only.
 
 ---
 
+## user_memory (migration 020)
+
+Persistent cross-session memory for the AI financial advisor. One row per user (primary key
+on `user_id`). Upserted by `financial-advisor-chat` when the advisor calls `update_user_memory`.
+Read at session start and injected into Block 2 of the system prompt.
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `user_id` | uuid | NO | — | PK, FK → `auth.users(id)` CASCADE |
+| `items` | jsonb | NO | `'[]'` | Ordered array of strings, max 10 — oldest trimmed by Edge Function |
+| `updated_at` | timestamptz | NO | `NOW()` | Set on every upsert |
+
+RLS: SELECT for own row (`auth.uid() = user_id`). Writes go through Edge Function with service role.
+
+---
+
 ## AI Evaluation Tables (migration 018)
 
 ### ai_eval_scores
@@ -337,3 +353,4 @@ Used by the metrics-agent for daily average score reporting and quality drift al
 | `017_metrics_agent_helper.sql` | `get_daily_event_counts()` Postgres RPC (service role only) |
 | `018_ai_eval_scores.sql` | ai_eval_scores table + ai_eval_daily_avg view |
 | `019_app_config.sql` | app_config table with global feature flags |
+| `020_user_memory.sql` | user_memory table — persistent advisor memory per user |

@@ -25,6 +25,29 @@ const supabase = createClient(
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 ```
 
+### Prompt Caching
+
+All AI Edge Functions cache their static system prompt using Anthropic's prompt caching.
+The system prompt is sent as an array of content blocks rather than a plain string, with
+`cache_control: { type: 'ephemeral' }` on the stable block:
+
+```typescript
+const cachedSystem = [
+  { type: 'text' as const, text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' as const } }
+] as Anthropic.TextBlockParam[];
+
+await anthropic.messages.create({ model, system: cachedSystem, messages, ... });
+```
+
+Anthropic caches the prefix for up to 5 minutes. For functions that process many users
+(e.g. `weekly-health-agent` looping over all active users), every call after the first in
+a 5-minute window is a cache hit — the static prompt tokens are not re-billed.
+
+**Two-block pattern (financial-advisor-chat):** when the system prompt has both a static
+portion (rules — same for every user) and a dynamic portion (user name + memory), send them
+as separate blocks. Only the static block carries `cache_control`; the dynamic block is sent
+fresh each turn without a cache directive.
+
 ---
 
 ## parse-credit-card-pdf
@@ -72,11 +95,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 | 500 | `{ error: string }` | Parse error or unknown failure |
 
 ### Environment Variables
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- `ANTHROPIC_API_KEY` — required for Claude categorisation + insights; falls back gracefully
+  if absent (keyword matching + hardcoded insights)
 
 ### External Libraries
 - `https://esm.sh/unpdf@0.11.0` — PDF text extraction (Deno-compatible)
+- `https://esm.sh/@anthropic-ai/sdk@0.36.3` — Claude categorisation + insight generation
 
 ---
 
@@ -186,6 +211,7 @@ data: {"type":"done"}
 | `get_spending_breakdown` | Returns avg monthly spend and category breakdown | `spend_analyses` (latest) |
 | `get_tasks` | Returns pending and completed tasks | `user_tasks` |
 | `calculate_scenario` | Runs FIRE sim with modified params | Internal (no DB) |
+| `update_user_memory` | Saves a preference or constraint to `user_memory` for future sessions | Upsert `user_memory` |
 
 ### Environment Variables
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`

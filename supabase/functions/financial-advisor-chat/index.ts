@@ -10,8 +10,21 @@ const corsHeaders = {
 
 const MODEL = 'claude-haiku-4-5-20251001';
 const MAX_HISTORY = 20;
-// Evaluate ~20% of turns to keep LLM-judge cost low
 const EVAL_SAMPLE_RATE = 0.2;
+const PROMPT_VERSION = 'advisor-v1.0';
+
+// Static rules — identical for every user, so this block is a cache hit after the first
+// call per 5-min window, cutting input-token cost by ~80% for the rules portion.
+const STATIC_SYSTEM = `You are FreedomFire's AI financial advisor — an expert on FIRE planning for Indian professionals. You have access to the user's real financial data via tools.
+
+Rules:
+- Always call a tool before answering questions about the user's data (never guess numbers)
+- Give specific numbers in Indian format (₹, use lakhs/crores for large amounts)
+- Frame insights as "freedom days" or retirement age impact when relevant
+- Be warm and direct — not corporate, not preachy
+- Never recommend specific stocks, mutual funds, or investment products by name
+- Acknowledge Indian financial context: EMI, SIP, ELSS, PPF, NPS, quick commerce
+- If the user states a preference, goal, or important constraint, call update_user_memory to save it for future sessions`;
 
 const TOOLS: Anthropic.Tool[] = [
   {
@@ -46,6 +59,20 @@ const TOOLS: Anthropic.Tool[] = [
       },
     },
   },
+  {
+    name: 'update_user_memory',
+    description: "Save a fact about the user worth remembering in future sessions — a stated preference, financial decision, or important constraint.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        item: {
+          type: 'string',
+          description: 'One concise sentence to remember (e.g. "Wants to retire in Goa", "Risk-averse, prefers FDs over equities", "Has a home loan ending in 2029")',
+        },
+      },
+      required: ['item'],
+    },
+  },
 ];
 
 Deno.serve(async (req) => {
@@ -76,26 +103,26 @@ Deno.serve(async (req) => {
       userId,
       sessionId,
       input: { message },
-      metadata: { historyLength: conversationHistory.length },
+      metadata: { historyLength: conversationHistory.length, promptVersion: PROMPT_VERSION },
     });
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('name')
-      .eq('id', userId)
-      .maybeSingle();
+    const [{ data: profile }, { data: userMemoryRow }] = await Promise.all([
+      supabase.from('profiles').select('name').eq('id', userId).maybeSingle(),
+      supabase.from('user_memory').select('items').eq('user_id', userId).maybeSingle(),
+    ]);
 
-    const systemPrompt = `You are FreedomFire's AI financial advisor — an expert on FIRE planning for Indian professionals. You have access to ${profile?.name ?? 'the user'}'s real financial data via tools.
+    const memoryItems: string[] = userMemoryRow?.items ?? [];
+    const memoryBlock = memoryItems.length > 0
+      ? `\nLearned about this user:\n${memoryItems.map((m) => `- ${m}`).join('\n')}`
+      : '';
+    const dynamicText = `The user's name is ${profile?.name ?? 'there'}.${memoryBlock}`;
 
-Rules:
-- Always call a tool before answering questions about the user's data (never guess numbers)
-- Give specific numbers in Indian format (₹, use lakhs/crores for large amounts)
-- Frame insights as "freedom days" or retirement age impact when relevant
-- Be warm and direct — not corporate, not preachy
-- Never recommend specific stocks, mutual funds, or investment products by name
-- Acknowledge Indian financial context: EMI, SIP, ELSS, PPF, NPS, quick commerce
-
-The user's name is ${profile?.name ?? 'there'}.`;
+    // Two-block system: static rules are cached (same for every user/turn);
+    // dynamic block (name + memory) is sent fresh without cache_control.
+    const systemBlocks = [
+      { type: 'text' as const, text: STATIC_SYSTEM, cache_control: { type: 'ephemeral' as const } },
+      { type: 'text' as const, text: dynamicText },
+    ] as Anthropic.TextBlockParam[];
 
     async function executeTool(name: string, input: Record<string, any>): Promise<string> {
       if (name === 'get_fire_progress') {
@@ -167,6 +194,25 @@ The user's name is ${profile?.name ?? 'there'}.`;
         });
       }
 
+      if (name === 'update_user_memory') {
+        const item: string = (input.item as string) ?? '';
+        if (item) {
+          const { data: existing } = await supabase
+            .from('user_memory')
+            .select('items')
+            .eq('user_id', userId)
+            .maybeSingle();
+          const currentItems: string[] = existing?.items ?? [];
+          const updatedItems = [...currentItems, item].slice(-10); // keep last 10
+          await supabase.from('user_memory').upsert({
+            user_id: userId,
+            items: updatedItems,
+            updated_at: new Date().toISOString(),
+          });
+        }
+        return JSON.stringify({ saved: true });
+      }
+
       return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
 
@@ -203,7 +249,7 @@ The user's name is ${profile?.name ?? 'there'}.`;
             const response = await anthropic.messages.create({
               model: MODEL,
               max_tokens: 2048,
-              system: systemPrompt,
+              system: systemBlocks,
               messages,
               tools: TOOLS,
             });
@@ -222,6 +268,7 @@ The user's name is ${profile?.name ?? 'there'}.`;
               startTime: genStart,
               endTime: new Date(),
               usage: { input: response.usage.input_tokens, output: response.usage.output_tokens },
+              metadata: { promptVersion: PROMPT_VERSION },
             });
 
             for (const block of response.content) {

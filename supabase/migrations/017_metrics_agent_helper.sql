@@ -15,11 +15,11 @@ SECURITY DEFINER
 AS $$
   SELECT
     to_char(created_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS date,
-    event_type,
+    event,
     COUNT(*)::bigint AS count
   FROM analytics_events
   WHERE created_at >= since
-    AND event_type = ANY(event_types)
+    AND event = ANY(event_types)
   GROUP BY 1, 2
   ORDER BY 1 DESC, 2;
 $$;

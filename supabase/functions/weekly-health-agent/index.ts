@@ -9,6 +9,23 @@ const corsHeaders = {
 };
 
 const MODEL = 'claude-haiku-4-5-20251001';
+const PROMPT_VERSION = 'weekly-v1.0';
+
+const SYSTEM_PROMPT = `You are a financial health analyst for FreedomFire, an Indian FIRE planning app. Each week you review a user's financial data and generate 3–5 actionable weekly insights.
+
+Insight categories:
+- spending: Spending patterns, anomalies, trends
+- fire_progress: Progress toward FIRE corpus, savings rate, milestones
+- task_opportunity: New actions the user could take
+- milestone: Celebrations — level up, badge close, streak achievement
+
+Rules:
+- Be specific: use real ₹ amounts and concrete FIRE impact
+- Be encouraging, not alarming
+- Indian financial context: SIP, EMI, crore/lakh formatting
+- Each insight max 200 characters
+
+Call output_insights with your generated insights.`;
 
 interface GeneratedInsight {
   category: 'spending' | 'fire_progress' | 'task_opportunity' | 'milestone';
@@ -55,7 +72,7 @@ async function processUser(
   const traceId = crypto.randomUUID();
   const lf = createLangfuseClient();
 
-  lf.trace({ id: traceId, name: 'weekly-health-agent', userId, tags: ['weekly', 'scheduled'] });
+  lf.trace({ id: traceId, name: 'weekly-health-agent', userId, tags: ['weekly', 'scheduled'], metadata: { promptVersion: PROMPT_VERSION } });
 
   // ── Fetch user context ──────────────────────────────────────────────────────
   const [{ data: fireCalc }, { data: spendAnalysis }, { data: tasks }, { data: gamification }] =
@@ -120,29 +137,17 @@ async function processUser(
   const genId = crypto.randomUUID();
   const genStart = new Date();
 
-  const systemPrompt = `You are a financial health analyst for FreedomFire, an Indian FIRE planning app. Each week you review a user's financial data and generate 3–5 actionable weekly insights.
-
-Insight categories:
-- spending: Spending patterns, anomalies, trends
-- fire_progress: Progress toward FIRE corpus, savings rate, milestones
-- task_opportunity: New actions the user could take
-- milestone: Celebrations — level up, badge close, streak achievement
-
-Rules:
-- Be specific: use real ₹ amounts and concrete FIRE impact
-- Be encouraging, not alarming
-- Indian financial context: SIP, EMI, crore/lakh formatting
-- Each insight max 200 characters
-
-Call output_insights with your generated insights.`;
-
   const userMessage = `Generate 3-5 weekly insights for this user:\n\n${contextLines}`;
+
+  // Cache the static system prompt — identical across all users, so every call after
+  // the first in a 5-min window is a cache hit, cutting input-token cost ~80%.
+  const cachedSystem = [{ type: 'text' as const, text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' as const } }];
 
   try {
     const response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 1024,
-      system: systemPrompt,
+      system: cachedSystem as Anthropic.TextBlockParam[],
       messages: [{ role: 'user', content: userMessage }],
       tools: [GENERATE_INSIGHTS_TOOL],
       tool_choice: { type: 'any' },
@@ -161,7 +166,8 @@ Call output_insights with your generated insights.`;
       traceId,
       name: 'generate-insights',
       model: MODEL,
-      input: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
+      input: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userMessage }],
+      metadata: { promptVersion: PROMPT_VERSION },
       output: insights,
       startTime: genStart,
       endTime: new Date(),

@@ -55,20 +55,38 @@ data: {"type":"message_stop"}
 ```
 
 ### System Prompt
+
+The system prompt is split into two blocks sent to Claude on every turn:
+
+**Block 1 — Static rules (cached with `cache_control: ephemeral`)**
+Identical for every user and every turn. Cached by Anthropic for up to 5 minutes, so all turns
+after the first within a session are a cache hit and do not re-bill these tokens.
+
 ```
 You are FreedomFire's AI financial advisor — an expert on FIRE planning for Indian
 professionals. You have access to the user's real financial data via tools.
 
 Rules:
-- Always use tools before answering questions about the user's data (never guess)
-- Give specific numbers in Indian format (₹, lakhs, crores)
-- Frame insights as "days of freedom" when relevant
+- Always call a tool before answering questions about the user's data (never guess numbers)
+- Give specific numbers in Indian format (₹, use lakhs/crores for large amounts)
+- Frame insights as "freedom days" or retirement age impact when relevant
 - Be warm and direct — not corporate, not preachy
-- Never recommend specific stocks, mutual funds, or investment products
-- Acknowledge Indian financial context: EMI, SIP, ELSS, PPF, NPS
-
-The user's name is {profile.name}.
+- Never recommend specific stocks, mutual funds, or investment products by name
+- Acknowledge Indian financial context: EMI, SIP, ELSS, PPF, NPS, quick commerce
+- If the user states a preference, goal, or important constraint, call update_user_memory
+  to save it for future sessions
 ```
+
+**Block 2 — Dynamic context (sent fresh each turn, never cached)**
+```
+The user's name is {profile.name}.
+[Learned about this user:             ← only present when user_memory.items is non-empty
+- Wants to retire in Goa
+- Risk-averse, prefers FDs over equities]
+```
+
+Version: `PROMPT_VERSION = 'advisor-v1.0'` — tracked in LangFuse trace metadata.
+Increment when the static rules change (see `engineering/ai-development-practices.md`).
 
 ### Claude Tools
 
@@ -135,6 +153,22 @@ DB: `SELECT * FROM user_tasks WHERE user_id = userId`
 ```
 Implementation: calls `calculate-fire-journey` internally with modified params
 
+#### update_user_memory
+```typescript
+// Input:
+{
+  item: string;   // One concise sentence to remember across sessions
+                  // e.g. "Wants to retire in Goa"
+                  //      "Risk-averse, prefers FDs over equities"
+                  //      "Has a home loan ending in 2029"
+}
+// Returns:
+{ saved: true }
+```
+DB: upsert into `user_memory`. Items array capped at 10 entries — oldest trimmed when full.
+The advisor calls this tool when the user states a lasting preference, decision, or constraint.
+Does not surface the save to the user (silent side-effect).
+
 ---
 
 ## Conversation Persistence
@@ -150,21 +184,24 @@ DB is append-only — full history preserved even if client truncates.
 
 ---
 
-## User AI Context
+## User Memory
 
-`user_ai_context` table refreshed whenever:
-- User saves a new FIRE calculation
-- User uploads a new statement
+`user_memory` table (migration `020_user_memory.sql`) stores facts the advisor has learned
+about the user across sessions. Replaces the `stated_preferences` field in `user_ai_context`.
 
-Stores a compact snapshot used as pre-context:
 ```typescript
 {
-  financial_summary: {
-    fireNumber, retireAtAge, savingsRate, avgMonthlySpend, topSpendCategory
-  },
-  stated_preferences: {}  // populated from chat (e.g., "I prefer not to cut dining")
+  user_id: uuid,          // PK
+  items: string[],        // JSONB array, max 10 items, oldest trimmed when full
+  updated_at: timestamptz
 }
 ```
+
+**Write path:** advisor calls `update_user_memory` tool → Edge Function upserts the row.  
+**Read path:** fetched in parallel with `profiles` at session start, injected into Block 2 of
+the system prompt as a bullet list. If `items` is empty the block is omitted entirely.  
+**Lifecycle:** items accumulate across sessions until the user clears them (future feature)
+or they are pushed out by the 10-item cap.
 
 ---
 
@@ -197,6 +234,9 @@ function ChatBubble({ message, isStreaming }: { message: AdvisorMessage; isStrea
 - [ ] `calculate_scenario` with `+10000` monthly savings returns earlier retire age
 - [ ] Streaming: text appears progressively (not all at once)
 - [ ] Each message saved to ai_conversations table
-- [ ] System prompt includes user's name from profile
+- [ ] System prompt Block 1 is static (same string for every user); Block 2 contains the user's name
 - [ ] If no fire_calculations exists: advisor gracefully says "You haven't calculated your FIRE number yet — tap the Calculator tab to get started"
 - [ ] ai_request_log row written with token counts and latency
+- [ ] `update_user_memory` call appends item to user_memory.items, capped at 10
+- [ ] If user_memory has items, they appear in system Block 2 as a bullet list
+- [ ] Memory persists across sessions (fetched fresh on every request)

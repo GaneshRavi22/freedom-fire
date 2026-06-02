@@ -10,6 +10,39 @@ const corsHeaders = {
 
 const MODEL = 'claude-haiku-4-5-20251001';
 
+// Variant A — control (current prompt)
+const PROMPT_VERSION_A = 'tasks-v1.0';
+const SYSTEM_PROMPT_A = `You are a financial advisor for Indian professionals pursuing FIRE (Financial Independence, Retire Early). Given a user's spending breakdown and FIRE progress, generate 3–5 personalised, actionable tasks that will have the highest impact on their retirement date.
+
+Each task must:
+- Be specific to their numbers (mention actual ₹ amounts)
+- Show a concrete FIRE impact (earlier retire date or reduced corpus)
+- Be achievable within 1–6 months
+- Reflect Indian financial context (SIP, EMI, quick commerce, Zomato/Swiggy, etc.)
+- Use different task_types (no duplicates)
+
+Call output_tasks with your generated tasks.`;
+
+// Variant B — experiment: leads with ₹ impact, shorter windows, explicit FIRE delta
+const PROMPT_VERSION_B = 'tasks-v1.1';
+const SYSTEM_PROMPT_B = `You are a FIRE planning coach for Indian professionals. Your mission: surface the tasks with the highest measurable impact on retirement date.
+
+Every task you generate must:
+- Open with the specific ₹ saving (e.g. "Save ₹3,200/month by...")
+- State the FIRE impact explicitly (e.g. "retires you 4 months sooner" or "reduces corpus need by ₹2.4L")
+- Be completable within 1–3 months, not 6
+- Name the exact app or instrument (not generic "food delivery" — say "Zomato/Swiggy"; not "SIP" — say which fund category)
+- Use a different task_type from every other task in the batch
+
+Call output_tasks with your generated tasks.`;
+
+// Stable 50/50 split: same userId always maps to the same variant
+function getVariant(userId: string): 'A' | 'B' {
+  const sum = Array.from(userId.replace(/-/g, '').slice(0, 8))
+    .reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return sum % 2 === 0 ? 'A' : 'B';
+}
+
 interface GeneratedTask {
   task_type: string;
   title: string;
@@ -65,8 +98,11 @@ Deno.serve(async (req) => {
     }
 
     const traceId = crypto.randomUUID();
+    const variant = getVariant(userId);
+    const promptVersion = variant === 'A' ? PROMPT_VERSION_A : PROMPT_VERSION_B;
+    const systemPrompt = variant === 'A' ? SYSTEM_PROMPT_A : SYSTEM_PROMPT_B;
     const lf = createLangfuseClient();
-    lf.trace({ id: traceId, name: 'generate-tasks', userId });
+    lf.trace({ id: traceId, name: 'generate-tasks', userId, metadata: { promptVersion, variant } });
 
     // ── 1. Fetch user context ─────────────────────────────────────────────────
     const [{ data: fireCalc }, { data: spendAnalysis }] = await Promise.all([
@@ -108,24 +144,17 @@ Deno.serve(async (req) => {
     let claudeError = null;
     let generatedTasks: GeneratedTask[] = [];
 
-    const systemPrompt = `You are a financial advisor for Indian professionals pursuing FIRE (Financial Independence, Retire Early). Given a user's spending breakdown and FIRE progress, generate 3–5 personalised, actionable tasks that will have the highest impact on their retirement date.
-
-Each task must:
-- Be specific to their numbers (mention actual ₹ amounts)
-- Show a concrete FIRE impact (earlier retire date or reduced corpus)
-- Be achievable within 1–6 months
-- Reflect Indian financial context (SIP, EMI, quick commerce, Zomato/Swiggy, etc.)
-- Use different task_types (no duplicates)
-
-Call output_tasks with your generated tasks.`;
-
     const userMessage = `Generate personalised financial tasks based on this user's data:\n\n${contextLines}`;
+
+    // Cache the system prompt — stable per variant, so every call in a 5-min window after
+    // the first is a cache hit, cutting input-token cost ~80%.
+    const cachedSystem = [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }];
 
     try {
       const response = await anthropic.messages.create({
         model: MODEL,
         max_tokens: 1024,
-        system: systemPrompt,
+        system: cachedSystem as Anthropic.TextBlockParam[],
         messages: [{ role: 'user', content: userMessage }],
         tools: [GENERATE_TASKS_TOOL],
         tool_choice: { type: 'any' },
@@ -148,6 +177,7 @@ Call output_tasks with your generated tasks.`;
         startTime: genStart,
         endTime: new Date(),
         usage: { input: usage.input_tokens, output: usage.output_tokens },
+        metadata: { promptVersion, variant },
       });
     } catch (err: any) {
       claudeError = err.message ?? 'Claude API error';
@@ -200,7 +230,7 @@ Call output_tasks with your generated tasks.`;
       function_name: 'generate-tasks',
       score_name: 'task_quality',
       score_value: evalResult.value,
-      score_detail: evalResult.detail,
+      score_detail: { ...evalResult.detail, promptVariant: variant, promptVersion },
       eval_type: evalResult.evalType,
     });
 

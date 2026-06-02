@@ -47,9 +47,16 @@ savings rate gaps, lifestyle mismatches.
 5. Upsert returned tasks to `user_tasks` (same seeding rules as v1: skip recommended/accepted/done, overwrite canceled)
 6. Always perform fresh SELECT after upsert
 
-### Claude Prompt
+### A/B Prompt Testing
 
-**System:**
+`generate-tasks` runs a stable 50/50 A/B split on every call. The variant is determined by
+a hash of `userId` — same user always sees the same variant, regardless of when they call
+the function. Variant is stored in `ai_eval_scores.score_detail.promptVariant` so LangFuse
+and direct SQL queries can compare quality scores by variant.
+
+See `engineering/ai-development-practices.md` for the full A/B evaluation workflow.
+
+#### Variant A — Control (`tasks-v1.0`)
 ```
 You are a financial advisor for Indian professionals pursuing FIRE (Financial Independence,
 Retire Early). Given a user's spending breakdown and FIRE progress, generate 3–5 personalised,
@@ -59,24 +66,42 @@ Each task must:
 - Be specific to their numbers (mention actual ₹ amounts)
 - Show a concrete FIRE impact (earlier retire date or reduced corpus)
 - Be achievable within 1–6 months
-- Reflect Indian financial context (SIP, EMI, quick commerce, etc.)
+- Reflect Indian financial context (SIP, EMI, quick commerce, Zomato/Swiggy, etc.)
+- Use different task_types (no duplicates)
 
-Return ONLY valid JSON — no explanation, no markdown.
+Call output_tasks with your generated tasks.
 ```
 
-**User message:**
+#### Variant B — Experiment (`tasks-v1.1`)
+Key differences: leads with ₹ saving, requires explicit FIRE delta, 1–3 month window, named platforms.
 ```
-Financial context:
-- Avg monthly spend: ₹{avgMonthlySpend}
-- Spending breakdown: {JSON.stringify(categoryBreakdown)}
-- FIRE number: ₹{fireNumber}
-- Current retire age: {retireAtAge} (in {yearsToFire} years)
-- Savings rate: {savingsRate}%
-- Monthly EMI: ₹{monthlyEmi}
-- Loan tenure remaining: {loanTenureYears} years
-- Insights: {insights.join('; ')}
+You are a FIRE planning coach for Indian professionals. Your mission: surface the tasks with
+the highest measurable impact on retirement date.
 
-Generate 3–5 tasks as JSON array.
+Every task you generate must:
+- Open with the specific ₹ saving (e.g. "Save ₹3,200/month by...")
+- State the FIRE impact explicitly (e.g. "retires you 4 months sooner" or "reduces corpus
+  need by ₹2.4L")
+- Be completable within 1–3 months, not 6
+- Name the exact app or instrument (not generic "food delivery" — say "Zomato/Swiggy";
+  not "SIP" — say which fund category)
+- Use a different task_type from every other task in the batch
+
+Call output_tasks with your generated tasks.
+```
+
+**User message (both variants):**
+```
+Generate personalised financial tasks based on this user's data:
+
+Avg monthly spend: ₹{avgMonthlySpend}
+Spending breakdown: {JSON.stringify(categoryBreakdown)}
+FIRE number: ₹{fireNumber}
+Retire at age: {retireAtAge} (in {yearsToFire} years)
+Savings rate: {savingsRate}%
+Monthly EMI: ₹{monthlyEmi}
+Loan tenure remaining: {loanTenureYears} years
+Insights: {insights.join('; ')}
 ```
 
 ### Claude Output Schema
@@ -129,3 +154,6 @@ try {
 - [ ] If Claude call fails → fallback to hardcoded seeds (no crash)
 - [ ] task_type is unique per generation (no duplicate task_types in one run)
 - [ ] ai_request_log row written after each Claude call
+- [ ] Same userId always resolves to the same variant (stable hash)
+- [ ] ai_eval_scores.score_detail includes `promptVariant` ('A' or 'B') and `promptVersion`
+- [ ] LangFuse trace metadata includes `variant` and `promptVersion`

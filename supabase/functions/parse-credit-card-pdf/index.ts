@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { extractText } from 'https://esm.sh/unpdf@0.11.0';
+import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.36.3';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,8 +30,11 @@ type Category =
   | 'health'
   | 'entertainment'
   | 'utilities'
+  | 'emi_loans'
+  | 'investments'
   | 'other';
 
+// Categories added in Claude upgrade — keywords kept for initial pass + fallback
 const categoryKeywords: Record<Category, string[]> = {
   other: [],
   food: [
@@ -63,7 +67,123 @@ const categoryKeywords: Record<Category, string[]> = {
     'vodafone', 'bsnl', 'vi', 'broadband', 'dth', 'tata sky', 'dish tv', 'recharge',
     'postpaid', 'prepaid', 'bill',
   ],
+  emi_loans: [
+    'emi', 'loan', 'repayment', 'installment', 'instalment', 'hdfc loan', 'icici loan',
+    'sbi loan', 'axis loan', 'mortgage',
+  ],
+  investments: [
+    'sip', 'mutual fund', 'mf', 'nps', 'ppf', 'elss', 'groww', 'zerodha', 'kite',
+    'upstox', 'smallcase', 'coin', 'scripbox', 'paytm money', 'stock', 'demat',
+  ],
 };
+
+// ── Claude-powered categorization + insight generation ────────────────────────
+// Sends unique transaction descriptions to Claude Haiku for semantic categorization
+// and personalized insight generation. Falls back to keyword matching on any error.
+
+const CATEGORIZE_SYSTEM = `You are analyzing Indian credit card statements for a FIRE planning app.
+
+Categories (use exactly these names):
+- food: restaurants, delivery apps (Zomato, Swiggy, Blinkit, Zepto), groceries, cafes
+- transport: cabs (Uber, Ola, Rapido), fuel, metro, IRCTC/flights, parking/fastag
+- shopping: Amazon, Flipkart, fashion, retail, D-Mart, electronics
+- health: pharmacies, hospitals, gyms, health insurance premiums, diagnostic labs
+- entertainment: streaming (Netflix, Hotstar, Spotify), movies, events, gaming
+- utilities: electricity, internet, phone bills, DTH, water/gas
+- emi_loans: EMI payments, loan repayments, any credit card bill payment
+- investments: SIP, mutual fund purchases, PPF, NPS, ELSS, stock/demat transactions
+- other: anything that doesn't fit the above
+
+Indian-specific: quick commerce (Blinkit, Zepto) is food; IRCTC is transport; life/term insurance premiums are investments.
+
+Generate insights that mention actual ₹ amounts, are actionable for FIRE planning, and use Indian financial context (SIP, EMI, corpus, freedom days).`;
+
+interface ClaudeAnalysisResult {
+  categories: Record<string, Category>;
+  insights: string[];
+}
+
+async function analyzeWithClaude(
+  anthropic: Anthropic,
+  uniqueDescriptions: string[],
+  avgMonthlySpend: number,
+  bank: string,
+  currentBreakdown: Record<string, number>,
+): Promise<ClaudeAnalysisResult | null> {
+  const ANALYZE_TOOL: Anthropic.Tool = {
+    name: 'analyze_transactions',
+    description: 'Categorize transactions and generate personalized spending insights',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        categories: {
+          type: 'object' as const,
+          description: 'Map of each transaction description to its category',
+          additionalProperties: { type: 'string' },
+        },
+        insights: {
+          type: 'array' as const,
+          description: '3-5 actionable insights referencing actual ₹ amounts from the breakdown',
+          items: { type: 'string' },
+          minItems: 3,
+          maxItems: 5,
+        },
+      },
+      required: ['categories', 'insights'],
+    },
+  };
+
+  const spendSummary = Object.entries(currentBreakdown)
+    .sort(([, a], [, b]) => (b as number) - (a as number))
+    .map(([cat, amt]) => `${cat}: ₹${Math.round(amt as number).toLocaleString('en-IN')}`)
+    .join(', ');
+
+  const userMessage = `Bank: ${bank}
+Avg monthly spend: ₹${avgMonthlySpend.toLocaleString('en-IN')}
+Category totals (keyword-matched): ${spendSummary}
+
+Unique merchant descriptions to categorize (${uniqueDescriptions.length}):
+${uniqueDescriptions.slice(0, 200).join('\n')}
+
+Categorize each merchant and generate 3–5 actionable spending insights.`;
+
+  // Cache the static system prompt — same for every statement parse
+  const cachedSystem = [
+    { type: 'text' as const, text: CATEGORIZE_SYSTEM, cache_control: { type: 'ephemeral' as const } },
+  ];
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2048,
+      system: cachedSystem as Anthropic.TextBlockParam[],
+      messages: [{ role: 'user', content: userMessage }],
+      tools: [ANALYZE_TOOL],
+      tool_choice: { type: 'any' },
+    });
+
+    const toolUse = response.content.find(
+      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
+    );
+    if (toolUse?.name !== 'analyze_transactions') return null;
+
+    const { categories, insights } = toolUse.input as { categories: Record<string, string>; insights: string[] };
+
+    // Validate category values — drop any Claude made up
+    const validCategories = new Set<Category>([
+      'food', 'transport', 'shopping', 'health', 'entertainment',
+      'utilities', 'emi_loans', 'investments', 'other',
+    ]);
+    const sanitized: Record<string, Category> = {};
+    for (const [desc, cat] of Object.entries(categories)) {
+      if (validCategories.has(cat as Category)) sanitized[desc] = cat as Category;
+    }
+
+    return { categories: sanitized, insights: insights ?? [] };
+  } catch {
+    return null;
+  }
+}
 
 function categorize(description: string): Category {
   const desc = description.toLowerCase();
@@ -299,18 +419,16 @@ Deno.serve(async (req) => {
       throw new Error('No transactions found in PDF. Please ensure it is a valid credit card statement.');
     }
 
-    // Categorize transactions
-    const categoryBreakdown: Record<string, number> = {};
+    // ── Step 1: keyword-based initial categorization (fast, used as fallback) ──
+    const keywordCategoryBreakdown: Record<string, number> = {};
     const monthlyAmounts: Record<string, number> = {};
 
     for (const txn of debits) {
       const cat = categorize(txn.description);
-      categoryBreakdown[cat] = (categoryBreakdown[cat] ?? 0) + txn.amount;
+      keywordCategoryBreakdown[cat] = (keywordCategoryBreakdown[cat] ?? 0) + txn.amount;
 
       const month = parseMonthYear(txn.date);
-      if (month !== '2026-01' || txn.date) {
-        monthlyAmounts[month] = (monthlyAmounts[month] ?? 0) + txn.amount;
-      }
+      monthlyAmounts[month] = (monthlyAmounts[month] ?? 0) + txn.amount;
     }
 
     const months = Object.keys(monthlyAmounts).sort();
@@ -323,7 +441,25 @@ Deno.serve(async (req) => {
       amount: Math.round(monthlyAmounts[month]),
     }));
 
-    const insights = generateInsights(categoryBreakdown, avgMonthlySpend, bank);
+    // ── Step 2: Claude-powered semantic categorization + richer insights ────────
+    const uniqueDescriptions = [...new Set(debits.map((t) => t.description))];
+    const anthropic = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
+    const claudeResult = await analyzeWithClaude(
+      anthropic,
+      uniqueDescriptions,
+      avgMonthlySpend,
+      bank,
+      keywordCategoryBreakdown,
+    );
+
+    // Build final category breakdown using Claude's map; fall back to keyword for any unmapped description
+    const categoryBreakdown: Record<string, number> = {};
+    for (const txn of debits) {
+      const cat = claudeResult?.categories[txn.description] ?? categorize(txn.description);
+      categoryBreakdown[cat] = (categoryBreakdown[cat] ?? 0) + txn.amount;
+    }
+
+    const insights = claudeResult?.insights ?? generateInsights(keywordCategoryBreakdown, avgMonthlySpend, bank);
     const outlierTransactions = detectOutliers(debits, avgMonthlySpend, periodMonths);
 
     return new Response(
