@@ -4,6 +4,14 @@
 
 ---
 
+## Demo
+
+<img src="docs/demo/01-splash.png" width="220" alt="Splash" /> <img src="docs/demo/04-home.png" width="220" alt="Dashboard" /> <img src="docs/demo/08-advisor.png" width="220" alt="AI Advisor" />
+
+[View all screenshots →](docs/demo.md)
+
+---
+
 ## What Is This?
 
 Most retirement calculators are American-centric, joyless spreadsheets. FreedomFire is built specifically for India and designed to make saving money genuinely engaging.
@@ -95,25 +103,25 @@ See the [L3 Component diagram](#l3--component-edge-functions) in the Architectur
 Who uses FreedomFire and what external systems it depends on.
 
 ```mermaid
-C4Context
-  title L1 — System Context: FreedomFire
+flowchart TD
+    user["User\n(Indian professional tracking FIRE progress)"]
 
-  Person(user, "User", "Indian professional tracking FIRE progress and retirement timeline")
+    subgraph ff["FreedomFire System"]
+        app["FreedomFire\nGameified FIRE planning app\nReact Native + Supabase"]
+    end
 
-  System(freedomfire, "FreedomFire", "Gamified FIRE planning app — React Native + Supabase")
+    claude["Anthropic Claude\nLLM API — advisor chat,\ntask generation, agent RCA"]
+    langfuse["LangFuse\nLLM observability —\ntraces, eval scores, drift detection"]
+    sentry["Sentry\nError monitoring —\ntriggers crash agent on fatal errors"]
+    slack["Slack\nWeekly insights, crash alerts,\nmetric summaries"]
+    github["GitHub\nSource host —\nsentry-agent opens draft fix PRs"]
 
-  System_Ext(anthropic, "Anthropic Claude", "LLM API — advisor chat, task generation, agent RCA")
-  System_Ext(langfuse, "LangFuse", "LLM observability — traces, eval scores, drift detection")
-  System_Ext(sentry, "Sentry", "Error monitoring — triggers crash agent on fatal errors")
-  System_Ext(slack, "Slack", "Receives weekly insights, crash alerts, and metric summaries")
-  System_Ext(github, "GitHub", "Source host — sentry-agent opens draft fix PRs here")
-
-  Rel(user, freedomfire, "Uses", "HTTPS / Expo")
-  Rel(freedomfire, anthropic, "LLM calls", "HTTPS")
-  Rel(freedomfire, langfuse, "Traces + eval scores", "HTTPS")
-  Rel(sentry, freedomfire, "Crash webhook", "HTTPS")
-  Rel(freedomfire, slack, "Alerts + digests", "Incoming webhook")
-  Rel(freedomfire, github, "Opens draft PRs", "REST API")
+    user -->|"HTTPS / Expo"| app
+    app -->|"LLM calls"| claude
+    app -->|"Traces + eval scores"| langfuse
+    sentry -->|"Crash webhook"| app
+    app -->|"Alerts + digests"| slack
+    app -->|"Opens draft PRs"| github
 ```
 
 ---
@@ -123,35 +131,33 @@ C4Context
 The high-level building blocks inside FreedomFire.
 
 ```mermaid
-C4Container
-  title L2 — Container: FreedomFire System
+flowchart TD
+    user["User\n(Indian professional)"]
 
-  Person(user, "User", "Indian professional")
+    subgraph ff["FreedomFire"]
+        rn_app["React Native App\nExpo SDK 54 / TypeScript\n7-tab mobile app"]
+        edge_fns["Edge Functions\nDeno / TypeScript\n7 functions — 2 data, 2 AI features,\n3 autonomous agents"]
+        postgres[("Postgres\nSupabase Postgres 15\nUsers, FIRE calcs, spend analyses,\ngamification state, AI eval scores")]
+        auth["Auth\nSupabase Auth\nEmail + magic-link, JWT issuance"]
+        storage["Storage\nSupabase Storage\nCredit card PDF statements"]
+    end
 
-  Boundary(b0, "FreedomFire") {
-    Container(rn_app, "React Native App", "Expo SDK 54 / TypeScript", "7-tab mobile app: FIRE calc, spend analyser, AI advisor, gamification, achievements")
-    Container(edge_fns, "Edge Functions", "Deno / TypeScript", "7 functions — 2 data, 2 AI features, 3 autonomous agents")
-    ContainerDb(postgres, "Postgres", "Supabase Postgres 15", "Users, FIRE calcs, spend analyses, tasks, gamification state, analytics events, AI eval scores")
-    Container(auth, "Auth", "Supabase Auth", "Email + magic-link authentication, JWT issuance")
-    Container(storage, "Storage", "Supabase Storage", "Credit card PDF statements uploaded by users")
-  }
+    claude2["Anthropic Claude\nLLM API (Haiku + Sonnet)"]
+    langfuse2["LangFuse\nLLM observability"]
+    sentry2["Sentry\nError monitoring"]
+    slack2["Slack\nAlert channel"]
+    github2["GitHub\nSource + PRs"]
 
-  System_Ext(anthropic, "Anthropic Claude", "LLM API (Haiku + Sonnet)")
-  System_Ext(langfuse, "LangFuse", "LLM observability")
-  System_Ext(sentry, "Sentry", "Error monitoring")
-  System_Ext(slack, "Slack", "Alert channel")
-  System_Ext(github, "GitHub", "Source + PRs")
-
-  Rel(user, rn_app, "Uses", "HTTPS / Expo Go / EAS build")
-  Rel(rn_app, auth, "Authenticates", "Supabase JS client")
-  Rel(rn_app, edge_fns, "Calls AI features", "HTTPS / SSE streaming")
-  Rel(rn_app, storage, "Uploads PDF statements", "Supabase JS client")
-  Rel(edge_fns, postgres, "Reads / writes user data", "Supabase service role")
-  Rel(edge_fns, anthropic, "LLM calls", "HTTPS")
-  Rel(edge_fns, langfuse, "Traces + scores", "HTTPS")
-  Rel(sentry, edge_fns, "Crash webhook", "HTTPS")
-  Rel(edge_fns, slack, "Posts alerts", "Incoming webhook")
-  Rel(edge_fns, github, "Opens draft PRs", "REST API")
+    user -->|"HTTPS / Expo Go / EAS build"| rn_app
+    rn_app -->|"Authenticates"| auth
+    rn_app -->|"Calls AI features (SSE streaming)"| edge_fns
+    rn_app -->|"Uploads PDF statements"| storage
+    edge_fns -->|"Reads / writes user data"| postgres
+    edge_fns -->|"LLM calls"| claude2
+    edge_fns -->|"Traces + scores"| langfuse2
+    sentry2 -->|"Crash webhook"| edge_fns
+    edge_fns -->|"Posts alerts"| slack2
+    edge_fns -->|"Opens draft PRs"| github2
 ```
 
 ---
@@ -161,61 +167,59 @@ C4Container
 What each of the 7 Edge Functions does and how they relate to each other and external systems.
 
 ```mermaid
-C4Component
-  title L3 — Component: Edge Functions layer
+flowchart TD
+    pg[("Postgres\nAll user and app data")]
+    claude3["Anthropic Claude\nLLM API"]
+    lf["LangFuse\nObservability"]
+    slk["Slack\nAlerts"]
+    gh["GitHub\nSource + PRs"]
+    snt["Sentry\nCrash source"]
+    sto["Supabase Storage\nPDF statements"]
 
-  ContainerDb(postgres, "Postgres", "Supabase Postgres", "All user and app data")
-  System_Ext(anthropic, "Anthropic Claude", "LLM API")
-  System_Ext(langfuse, "LangFuse", "Observability")
-  System_Ext(slack, "Slack", "Alerts")
-  System_Ext(github, "GitHub", "Source + PRs")
-  System_Ext(sentry, "Sentry", "Crash source")
-  Container(storage, "Supabase Storage", "Object store", "PDF statements")
+    subgraph agents["Autonomous Agents — cron / webhook triggered"]
+        weekly["weekly-health-agent\nCron Sun 3 am UTC\nPersonalised weekly insights per user"]
+        sentry_agent["sentry-agent\nSentry webhook\nStage 1: enrich + Slack\nStage 2: GitHub source → Claude RCA\nStage 3: open draft PR"]
+        metrics["metrics-agent\nCron daily 3:30 am UTC\nMetric anomaly + AI quality drift detection"]
+    end
 
-  Boundary(b_agents, "Autonomous Agents — cron / webhook triggered") {
-    Component(weekly, "weekly-health-agent", "Deno / TypeScript", "Cron Sun 3 am UTC — reads each user's FIRE state, calls Claude to write 3–5 personalised insights, writes to home dashboard")
-    Component(sentry_agent, "sentry-agent", "Deno / TypeScript", "Sentry webhook — Stage 1: enrich + Slack; Stage 2: fetch source via GitHub → Claude RCA; Stage 3: open draft PR")
-    Component(metrics, "metrics-agent", "Deno / TypeScript", "Cron daily 3:30 am UTC — detects metric anomalies and AI quality drift, calls Claude for hypothesis, posts Slack digest")
-  }
+    subgraph ai_fns["AI Features — client-triggered HTTP"]
+        advisor["financial-advisor-chat\nSSE streaming\nAgentic Claude advisor with 4 tools\nLLM-judge eval at 20% sample rate"]
+        tasks["generate-tasks\nForced tool-use\nClaude generates 3–5 personalised tasks\nRule-based eval on every call"]
+    end
 
-  Boundary(b_ai, "AI Features — client-triggered HTTP") {
-    Component(advisor, "financial-advisor-chat", "Deno / TypeScript", "SSE streaming — agentic Claude advisor with 4 tools (FIRE, spend, tasks, scenario calc); LLM-judge eval at 20% sample rate")
-    Component(tasks, "generate-tasks", "Deno / TypeScript", "Forced tool-use — Claude generates 3–5 personalised action tasks from spend + FIRE data; rule-based eval on every call")
-  }
+    subgraph data_fns["Data Functions — client-triggered HTTP"]
+        pdf["parse-credit-card-pdf\nParses PDF, categorises spend,\nwrites spend_analyses row"]
+        fire_calc["calculate-fire-journey\nConvergence-loop FIRE simulation\nEMI payoff timing, inflation, lifestyle tier"]
+    end
 
-  Boundary(b_data, "Data Functions — client-triggered HTTP") {
-    Component(pdf, "parse-credit-card-pdf", "Deno / TypeScript", "Reads PDF from Storage, parses transactions, categorises spend, writes spend_analyses row")
-    Component(fire_calc, "calculate-fire-journey", "Deno / TypeScript", "Convergence-loop FIRE simulation — accounts for EMI payoff timing, inflation, lifestyle tier")
-  }
+    weekly -->|"Reads fire_calculations + gamification\nWrites ai_insights"| pg
+    weekly -->|"Generates insights"| claude3
+    weekly -->|"Trace + insight_quality score"| lf
 
-  Rel(weekly, postgres, "Reads fire_calculations + gamification; writes ai_insights", "")
-  Rel(weekly, anthropic, "Generates insights", "")
-  Rel(weekly, langfuse, "Trace + insight_quality score", "")
+    snt -->|"POST crash event"| sentry_agent
+    sentry_agent -->|"Writes ai_request_log"| pg
+    sentry_agent -->|"Root cause + fix suggestion"| claude3
+    sentry_agent -->|"Reads source files; opens draft PR"| gh
+    sentry_agent -->|"3-stage progress alerts"| slk
+    sentry_agent -->|"Trace + root_cause_quality score"| lf
 
-  Rel(sentry, sentry_agent, "POST crash event", "")
-  Rel(sentry_agent, postgres, "Writes ai_request_log", "")
-  Rel(sentry_agent, anthropic, "Root cause + fix suggestion", "")
-  Rel(sentry_agent, github, "Reads source files; opens draft PR", "")
-  Rel(sentry_agent, slack, "3-stage progress alerts", "")
-  Rel(sentry_agent, langfuse, "Trace + root_cause_quality score", "")
+    metrics -->|"Reads analytics_events + ai_eval_daily_avg"| pg
+    metrics -->|"RCA on anomaly days only"| claude3
+    metrics -->|"Healthy digest or anomaly alert"| slk
+    metrics -->|"Trace + metrics-rca generation"| lf
 
-  Rel(metrics, postgres, "Reads analytics_events + ai_eval_daily_avg", "")
-  Rel(metrics, anthropic, "RCA on anomaly days only", "")
-  Rel(metrics, slack, "Healthy digest or anomaly alert", "")
-  Rel(metrics, langfuse, "Trace + metrics-rca generation", "")
+    advisor -->|"Reads FIRE + spend + tasks\nWrites ai_conversations"| pg
+    advisor -->|"Streaming tool-use agentic loop"| claude3
+    advisor -->|"Per-turn generations + response_quality score"| lf
 
-  Rel(advisor, postgres, "Reads FIRE + spend + tasks; writes ai_conversations", "")
-  Rel(advisor, anthropic, "Streaming tool-use agentic loop", "")
-  Rel(advisor, langfuse, "Per-turn generations + response_quality score", "")
+    tasks -->|"Reads spend_analyses + fire_calculations\nUpserts user_tasks"| pg
+    tasks -->|"Generates tasks via forced tool call"| claude3
+    tasks -->|"Trace + task_quality score"| lf
 
-  Rel(tasks, postgres, "Reads spend_analyses + fire_calculations; upserts user_tasks", "")
-  Rel(tasks, anthropic, "Generates tasks via forced tool call", "")
-  Rel(tasks, langfuse, "Trace + task_quality score", "")
+    pdf -->|"Reads uploaded PDF"| sto
+    pdf -->|"Writes spend_analyses"| pg
 
-  Rel(pdf, storage, "Reads uploaded PDF", "")
-  Rel(pdf, postgres, "Writes spend_analyses", "")
-
-  Rel(fire_calc, postgres, "Reads user profile; writes fire_calculations", "")
+    fire_calc -->|"Reads user profile\nWrites fire_calculations"| pg
 ```
 
 ---
