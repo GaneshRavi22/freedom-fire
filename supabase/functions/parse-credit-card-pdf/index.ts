@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { extractText } from 'https://esm.sh/unpdf@0.11.0';
 import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.36.3';
+import { createLangfuseClient, LangfuseClient } from '../_shared/langfuse.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -109,6 +110,8 @@ async function analyzeWithClaude(
   avgMonthlySpend: number,
   bank: string,
   currentBreakdown: Record<string, number>,
+  lf: LangfuseClient,
+  traceId: string,
 ): Promise<ClaudeAnalysisResult | null> {
   const ANALYZE_TOOL: Anthropic.Tool = {
     name: 'analyze_transactions',
@@ -152,6 +155,7 @@ Categorize each merchant and generate 3–5 actionable spending insights.`;
     { type: 'text' as const, text: CATEGORIZE_SYSTEM, cache_control: { type: 'ephemeral' as const } },
   ];
 
+  const genStart = new Date();
   try {
     const response = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -160,6 +164,19 @@ Categorize each merchant and generate 3–5 actionable spending insights.`;
       messages: [{ role: 'user', content: userMessage }],
       tools: [ANALYZE_TOOL],
       tool_choice: { type: 'any' },
+    });
+
+    lf.generation({
+      id: crypto.randomUUID(),
+      traceId,
+      name: 'analyze-transactions',
+      model: 'claude-haiku-4-5-20251001',
+      input: userMessage,
+      output: response.content,
+      startTime: genStart,
+      endTime: new Date(),
+      usage: { input: response.usage.input_tokens, output: response.usage.output_tokens },
+      metadata: { bank, uniqueDescriptions: uniqueDescriptions.length },
     });
 
     const toolUse = response.content.find(
@@ -356,6 +373,9 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  const lf = createLangfuseClient();
+  const traceId = crypto.randomUUID();
+
   try {
     const { filePath, userId, password } = await req.json();
     if (!filePath || !userId) {
@@ -364,6 +384,13 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    lf.trace({
+      id: traceId,
+      name: 'parse-credit-card-pdf',
+      userId,
+      input: { filePath },
+    });
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -450,6 +477,8 @@ Deno.serve(async (req) => {
       avgMonthlySpend,
       bank,
       keywordCategoryBreakdown,
+      lf,
+      traceId,
     );
 
     // Build final category breakdown using Claude's map; fall back to keyword for any unmapped description
@@ -462,6 +491,7 @@ Deno.serve(async (req) => {
     const insights = claudeResult?.insights ?? generateInsights(keywordCategoryBreakdown, avgMonthlySpend, bank);
     const outlierTransactions = detectOutliers(debits, avgMonthlySpend, periodMonths);
 
+    await lf.flush();
     return new Response(
       JSON.stringify({
         avgMonthlySpend,
@@ -478,6 +508,7 @@ Deno.serve(async (req) => {
       }
     );
   } catch (error: any) {
+    await lf.flush();
     return new Response(
       JSON.stringify({ error: error.message ?? 'Internal server error' }),
       {

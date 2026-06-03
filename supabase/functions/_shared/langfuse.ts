@@ -147,7 +147,7 @@ export class LangfuseClient {
     const payload = { batch: this.batch };
     this.batch = [];
     try {
-      await fetch(`${this.host}/api/public/ingestion`, {
+      const res = await fetch(`${this.host}/api/public/ingestion`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -155,8 +155,11 @@ export class LangfuseClient {
         },
         body: JSON.stringify(payload),
       });
-    } catch {
-      // Never propagate — LangFuse unavailability must not fail the main function
+      if (!res.ok) {
+        console.error(`[langfuse] flush failed: HTTP ${res.status} — ${await res.text()}`);
+      }
+    } catch (err) {
+      console.error(`[langfuse] flush error: ${err}`);
     }
   }
 
@@ -166,9 +169,11 @@ export class LangfuseClient {
 }
 
 export function createLangfuseClient(): LangfuseClient {
-  return new LangfuseClient({
-    publicKey: Deno.env.get('LANGFUSE_PUBLIC_KEY') ?? '',
-    secretKey: Deno.env.get('LANGFUSE_SECRET_KEY') ?? '',
-    host: Deno.env.get('LANGFUSE_HOST'),
-  });
+  const publicKey = Deno.env.get('LANGFUSE_PUBLIC_KEY') ?? '';
+  const secretKey = Deno.env.get('LANGFUSE_SECRET_KEY') ?? '';
+  const host = Deno.env.get('LANGFUSE_HOST');
+  if (!publicKey || !secretKey) {
+    console.warn('[langfuse] disabled — LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY not set');
+  }
+  return new LangfuseClient({ publicKey, secretKey, host });
 }
