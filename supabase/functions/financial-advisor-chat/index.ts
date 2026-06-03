@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
       if (name === 'get_fire_progress') {
         const { data } = await supabase
           .from('fire_calculations')
-          .select('fire_number,retire_at_age,years_to_fire,savings_rate,monthly_savings,monthly_emi,loan_payoff_age')
+          .select('fire_number,retire_at_age,years_to_fire,savings_rate,monthly_savings,monthly_emi')
           .eq('user_id', userId)
           .maybeSingle();
         if (!data) return JSON.stringify({ error: 'No FIRE calculation found. User needs to set up their FIRE plan first.' });
@@ -271,6 +271,8 @@ Deno.serve(async (req) => {
               metadata: { promptVersion: PROMPT_VERSION },
             });
 
+            const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = [];
+
             for (const block of response.content) {
               if (block.type === 'text') {
                 assistantContent += block.text;
@@ -280,9 +282,13 @@ Deno.serve(async (req) => {
                 send({ type: 'tool_use', id: block.id, name: block.name, input: block.input });
                 const toolResult = await executeTool(block.name, block.input as Record<string, any>);
                 send({ type: 'tool_result', tool_use_id: block.id, content: toolResult });
-                messages.push({ role: 'assistant', content: response.content });
-                messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: block.id, content: toolResult }] });
+                toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: toolResult });
               }
+            }
+
+            if (toolResults.length > 0) {
+              messages.push({ role: 'assistant', content: response.content });
+              messages.push({ role: 'user', content: toolResults });
             }
 
             continueLoop = response.stop_reason === 'tool_use';

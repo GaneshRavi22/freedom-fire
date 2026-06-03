@@ -44,22 +44,22 @@ export const useAdvisorStore = create<AdvisorState>((set, get) => ({
 
       if (error) throw error;
 
-      // For non-streaming (Supabase invoke doesn't support true SSE streaming from client),
-      // parse the accumulated SSE response
+      let rawText = '';
+      if (data instanceof Response) {
+        rawText = await data.text();
+      } else if (typeof data === 'string') {
+        rawText = data;
+      }
+
       let assistantText = '';
-      if (typeof data === 'string') {
-        // Parse SSE lines
-        const lines = data.split('\n').filter((l: string) => l.startsWith('data: '));
-        for (const line of lines) {
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === 'text_delta') assistantText += event.text;
-          } catch {
-            // skip malformed lines
-          }
+      const lines = rawText.split('\n').filter((l: string) => l.startsWith('data: '));
+      for (const line of lines) {
+        try {
+          const event = JSON.parse(line.slice(6));
+          if (event.type === 'text_delta') assistantText += event.text;
+        } catch {
+          // skip malformed lines
         }
-      } else if (data?.content) {
-        assistantText = data.content;
       }
 
       const assistantMsg: AdvisorMessage = {

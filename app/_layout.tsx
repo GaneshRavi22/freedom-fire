@@ -42,7 +42,7 @@ async function persistPendingOnboarding(userId: string) {
 }
 
 export default function RootLayout() {
-  const { setSession, session } = useAuthStore();
+  const { setSession, session, fetchProfile } = useAuthStore();
   const segments = useSegments();
   const router = useRouter();
   const [isLoaded, setIsLoaded] = useState(false);
@@ -59,11 +59,13 @@ export default function RootLayout() {
         supabase.auth.signOut();
       }
       setSession(session ?? null);
+      if (session) fetchProfile();
       setIsLoaded(true);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
+      if (session) fetchProfile();
       if (session && _event === 'SIGNED_IN') {
         await persistPendingOnboarding(session.user.id);
       }

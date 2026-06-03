@@ -478,8 +478,9 @@ export default function FireCalculatorScreen() {
 
     if (isFirstPreview) {
       setTimeout(() => {
+        const scrollNode = (scrollRef.current?.getInnerViewNode?.() ?? scrollRef.current) as any;
         resultRef.current?.measureLayout(
-          scrollRef.current?.getInnerViewNode?.() as any,
+          scrollNode,
           (_, y) => scrollRef.current?.scrollTo({ y: y - 16, animated: true }),
           () => {}
         );
