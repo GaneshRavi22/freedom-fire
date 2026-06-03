@@ -270,8 +270,10 @@ describe('sendMessage — response parsing', () => {
     expect(assistant?.content).toBe('hello');
   });
 
-  it('uses data.content when response is an object (non-SSE path)', async () => {
-    invokeMock.mockResolvedValue({ data: { content: 'Direct answer' }, error: null });
+  it('parses SSE text_delta events from a Response object', async () => {
+    const sseBody = 'data: {"type":"text_delta","text":"Direct answer"}\n\n';
+    const response = new Response(sseBody, { headers: { 'Content-Type': 'text/event-stream' } });
+    invokeMock.mockResolvedValue({ data: response, error: null });
 
     await act(async () => {
       await useAdvisorStore.getState().sendMessage('user-1', 'Hi');
